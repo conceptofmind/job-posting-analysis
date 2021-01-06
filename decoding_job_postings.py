@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup as bs
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.decomposition import TruncatedSVD
-from sklearn.preprocessing import normalize
+from sklearn.preprocessing import Normalizer
 from sklearn.cluster import KMeans
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
@@ -90,77 +90,38 @@ cosine_similarities = cosine_similarity(tf_matrix[:-1] , tf_matrix[-1])
 cosine_similarities.shape
 
 df_new['Relevant'] = cosine_similarities
-df_sorted = df_new.sort_values(['Relevant'], ascending = False)
+df_sorted = df_new.sort_values(by='Relevant', ascending = False)
 df_sorted.reset_index(inplace=True, drop=True)
-df_sorted.head(10)
+df_sorted.shape
+
+most_similar = df_sorted.iloc[:100].copy()
+most_similar[most_similar['Title'].str.contains('(data scientist)|(data science)', case=False)].shape
+most_similar.head()
 
 #df_sorted.to_pickle('step2'.pk)
 
+bullet_points = []
+for sublist in most_similar['Bullets']:
+  for item in sublist:
+    bullet_points.append(item)
+len(bullet_points)
+
+bullet_vector = TfidfVectorizer(stop_words='english')
+similar_skills = bullet_vector.fit_transform(bullet_points)
+similar_skills.shape
+
 svd_object = TruncatedSVD(n_components=100)
-svd_transform_matrix = svd_object.fit_transform(tf_matrix)
+svd_transform_matrix = svd_object.fit_transform(similar_skills)
 svd_transform_matrix.shape
 
-svd_norm_matrix = normalize(svd_transform_matrix)
+svd_norm_matrix = Normalizer().fit_transform(svd_transform_matrix)
 svd_norm_matrix.shape
 
 svd_cosine_similarity = svd_norm_matrix[:-1] @ svd_norm_matrix[-1].T
 svd_cosine_similarity.shape
 
-#k_means_model = KMeans(n_clusters=15)
-#clusters = k_means_model.fit_predict(svd_norm_matrix)
-#clusters
+k_means_model = KMeans(n_clusters=6)
+clusters = k_means_model.fit(svd_norm_matrix)
+clusters_label = pd.DataFrame({'Cluster': clusters.labels_})
+clusters_label.head()
 
-#df = pd.DataFrame({'Index': range(clusters.size), 'Cluster': clusters})
-#df
-
-def compute_cluster_groups(svd_norm_matrix, k=15):
-    cluster_model = KMeans(n_clusters=k)
-    clusters = cluster_model.fit_predict(svd_norm_matrix)
-    df = pd.DataFrame({'Index': range(clusters.size), 'Cluster': clusters})
-    return [df_cluster for  _, df_cluster in df.groupby('Cluster')]
-
-cluster_groups = compute_cluster_groups(svd_norm_matrix)
-cluster_groups
-
-def cluster_to_image(df_cluster, max_words=10, tf_matrix=tf_matrix,
-                     vectorizer=vectorizer):
-    indices = df_cluster.Index.values
-    summed_tfidf = np.asarray(tf_matrix[indices].sum(axis=0))[0]
-    data = {'Word': vectorizer.get_feature_names(),'Summed TFIDF': summed_tfidf}
-    df_ranked_words = pd.DataFrame(data).sort_values('Summed TFIDF', ascending=False)
-    words_to_score = {word: score
-                     for word, score in df_ranked_words[:max_words].values
-                     if score != 0}
-    cloud_generator = WordCloud(background_color='white',
-                                color_func=_color_func,
-                                random_state=1)
-    wordcloud_image = cloud_generator.fit_words(words_to_score)
-    return wordcloud_image
-
-def _color_func(*args, **kwargs):
-    return np.random.choice(['black', 'blue', 'teal', 'purple', 'brown'])
-
-wordcloud_image = cluster_to_image(cluster_groups[0])
-plt.imshow(wordcloud_image, interpolation="bilinear")
-plt.show()
-
-def plot_wordcloud_grid(cluster_groups, num_rows=5, num_columns=3,
-                        **kwargs):
-    figure, axes = plt.subplots(num_rows, num_columns, figsize=(20, 15))
-    cluster_groups_copy = cluster_groups[:]
-    for r in range(num_rows):
-        for c in range(num_columns):
-            if not cluster_groups_copy:
-                break
-
-            df_cluster = cluster_groups_copy.pop(0)
-            wordcloud_image = cluster_to_image(df_cluster, **kwargs)
-            ax = axes[r][c]
-            ax.imshow(wordcloud_image,
-            interpolation="bilinear")
-            ax.set_title(f"Cluster {df_cluster.Cluster.iloc[0]}")
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-plot_wordcloud_grid(cluster_groups)
-plt.show()
